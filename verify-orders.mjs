@@ -49,9 +49,13 @@ let frontend=await readFile(new URL('./dist/app.js',import.meta.url),'utf8');fro
 await vm.runInContext("staff={role:'admin'};statusFilter='';renderOrders()",context);
 const html=element('#admin-content').innerHTML;
 assert.ok(html.includes('order-contact'));assert.ok(html.includes('1234567890'));
+assert.ok(html.includes('<details class="order-card order-fold"><summary>'));
+assert.ok(!html.includes('<details class="order-card order-fold" open'),'Orders start collapsed');
+assert.ok(html.includes('展开明细'));assert.ok(html.includes('收起明细'));
 assert.ok(html.includes('<td><b>2</b></td>'));assert.ok(!html.includes('<td><b>102</b></td>'),'Rejected orders must not add to preparation totals');
 assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));
 await vm.runInContext("lookup('ABCDE23456')",context);
 const customerHTML=element('#my-order-result').innerHTML;
 assert.ok(customerHTML.includes('已拒绝配送'));assert.ok(customerHTML.includes('缺货 &lt;script&gt;'));assert.ok(!customerHTML.includes('data-action="cancel-order"'));
+assert.ok(!/未收取付款|尚未付款|不进行在线付款/.test(frontend),'Remove payment notices from customer UI');
 console.log('PASS: admin/supplier rejection, mandatory reason, status conflicts, private lookup, contact display, safe reason rendering, preparation totals');

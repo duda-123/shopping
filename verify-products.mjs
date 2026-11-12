@@ -6,7 +6,7 @@ let source=await readFile(new URL('./dist/app.js',import.meta.url),'utf8');
 source=source.replace(/^\uFEFF?import .*\r?\n/,'').replace(/boot\(\);\s*$/,'');
 const handlers={},requests=[];
 const elements=new Map();
-const element=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',textContent:'',hidden:false});return elements.get(s);};
+const element=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',textContent:'',hidden:false,open:false,close(){this.open=false;},showModal(){this.open=true;},querySelector(){return{focus(){}};}});return elements.get(s);};
 const fields={id:'',name:'回归测试商品',unit:'把',price:'25.50',image:{size:0,type:''}};
 class FormDataMock{constructor(form){this.fields=new Map(Object.entries(form.fields));}entries(){return this.fields.entries();}[Symbol.iterator](){return this.entries();}get(key){return this.fields.get(key);}set(k,v){this.fields.set(k,v);}}
 const button={disabled:false,textContent:'新增商品'};
@@ -30,8 +30,14 @@ assert.equal(requests[0].headers['Content-Type'],undefined,'Browser must set the
 requests.length=0;fields.id='existing-product';fields.name='修改后的已有商品';
 await handlers.submit({target:form,preventDefault(){}});
 assert.equal(requests[0].body.get('id'),'existing-product');assert.equal(requests[0].body.get('price'),'25.50');
-vm.runInNewContext("renderProductAdmin({id:'existing-product',name:'已有商品',unit:'公斤',price_cents:2550})",context);
-assert.ok(element('#admin-content').innerHTML.includes('value="25.50"'));
+vm.runInNewContext("renderProductAdmin();openProductEditor({id:'existing-product',name:'已有商品',unit:'公斤',price_cents:2550})",context);
+assert.ok(element('#product-dialog').innerHTML.includes('value="25.50"'));
+assert.equal(element('#product-dialog').open,true,'Edit must open a dialog without scrolling');
+assert.ok(!element('#admin-content').innerHTML.includes('id="product-form"'),'The product form should not occupy the listing');
+vm.runInNewContext('openProductEditor()',context);
+assert.equal(element('#product-dialog').open,true);
+assert.ok(element('#product-dialog').innerHTML.includes('value=""'));
+assert.ok(element('#product-dialog').innerHTML.includes('新增商品'));
 vm.runInNewContext("staff={role:'supplier'};renderProductAdmin()",context);
 assert.ok(!element('#admin-content').innerHTML.includes('id="product-form"'),'Supplier catalogue is read-only');
 const totals=vm.runInNewContext("fx={rate:0.35753,date:'2026-11-12'};products=[{id:'a',price_cents:1999},{id:'b',price_cents:10}];cart={a:3,b:7};cartAmount()",context);

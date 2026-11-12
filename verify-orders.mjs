@@ -40,7 +40,7 @@ for(const value of ['admin','supplier']){
 for(const status of ['rejected','cancelled','fulfilled']){order={id:orderId,status};assert.equal((await call('reject-order',{id:orderId,reason:'不能覆盖'})).status,409);assert.equal(order.status,status);}
 
 const elements=new Map(),handlers={};
-const element=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',textContent:'',hidden:false,scrollIntoView(){},close(){}});return elements.get(s);};
+const element=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',textContent:'',hidden:false,open:false,scrollIntoView(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
 const item={id:'p',name:'青菜',unit:'把',quantity:2};
 const pending={id:orderId,status:'pending',customer:'测试客户',phone:'1234567890',address:'测试地址',region:'将军镇',items:[item],created_at:new Date().toISOString(),receipt_code:'ABCDE23456'};
 const rejected={...pending,id:'other-id',status:'rejected',rejection_reason:'缺货 <script>alert(1)</script>',items:[{...item,quantity:100}]};
@@ -49,13 +49,22 @@ let frontend=await readFile(new URL('./dist/app.js',import.meta.url),'utf8');fro
 await vm.runInContext("staff={role:'admin'};statusFilter='';renderOrders()",context);
 const html=element('#admin-content').innerHTML;
 assert.ok(html.includes('order-contact'));assert.ok(html.includes('1234567890'));
-assert.ok(html.includes('<details class="order-card order-fold"><summary>'));
-assert.ok(!html.includes('<details class="order-card order-fold" open'),'Orders start collapsed');
-assert.ok(html.includes('展开明细'));assert.ok(html.includes('收起明细'));
+assert.ok(html.includes('data-action="view-admin-order"'));
+assert.ok(!html.includes('order-expanded'),'The order list must remain compact');
 assert.ok(html.includes('<td><b>2</b></td>'));assert.ok(!html.includes('<td><b>102</b></td>'),'Rejected orders must not add to preparation totals');
-assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));
+vm.runInContext('showOrder(orders[1],true)',context);
+assert.equal(element('#order-dialog').open,true);
+assert.ok(element('#order-dialog').innerHTML.includes('&lt;script&gt;'));assert.ok(!element('#order-dialog').innerHTML.includes('<script>'));
 await vm.runInContext("lookup('ABCDE23456')",context);
-const customerHTML=element('#my-order-result').innerHTML;
+const customerHTML=element('#order-dialog').innerHTML;
 assert.ok(customerHTML.includes('已拒绝配送'));assert.ok(customerHTML.includes('缺货 &lt;script&gt;'));assert.ok(!customerHTML.includes('data-action="cancel-order"'));
+assert.equal(element('#order-dialog').open,true,'Customer lookup must open a modal');
+assert.ok(customerHTML.includes('data-action="close-order"'));
+vm.runInContext('showOrder(orders[0],true)',context);
+assert.ok(element('#order-dialog').innerHTML.includes('data-action="fulfill"'));
+assert.ok(element('#order-dialog').innerHTML.includes('data-action="reject-order"'));
+vm.runInContext("showOrder(orders[0],false,'ABCDE23456')",context);
+assert.ok(element('#order-dialog').innerHTML.includes('data-action="cancel-order"'));
+assert.ok(!element('#order-dialog').innerHTML.includes('data-action="fulfill"'));
 assert.ok(!/未收取付款|尚未付款|不进行在线付款/.test(frontend),'Remove payment notices from customer UI');
 console.log('PASS: admin/supplier rejection, mandatory reason, status conflicts, private lookup, contact display, safe reason rendering, preparation totals');

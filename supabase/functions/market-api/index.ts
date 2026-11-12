@@ -136,6 +136,13 @@ Deno.serve(async req => {
       return reply({ ok:true });
     }
     if (staff.must_change) return reply({ error:'请先修改初始密码' },403);
+    if(b.action==='delete-history-order') {
+      if(!['admin','supplier'].includes(staff.role))return reply({error:'无订单管理权限'},403);
+      const changed=check(await db.from('market_orders').update({history_hidden_at:new Date().toISOString(),history_hidden_by:user.id})
+        .eq('id',text(b.id,36,36)).neq('status','pending').is('history_hidden_at',null).select('id').maybeSingle());
+      if(!changed)return reply({error:'仅可删除未移除的历史订单，请刷新后查看'},409);
+      return reply({ok:true});
+    }
     if(b.action==='reject-order') {
       if(!['admin','supplier'].includes(staff.role)) return reply({error:'无订单管理权限'},403);
       const reason=text(b.reason,1,500);
@@ -152,6 +159,8 @@ Deno.serve(async req => {
       for (let start=0;;start+=500) {
         const fields='id,customer,phone,address,region,items,created_at,status,rejection_reason,rejected_at,total_mxn_cents,total_cny_cents,fx_rate,fx_date,fx_source'+(staff.role==='admin'?',receipt_code,ip_hash':'');
         let query = db.from('market_orders').select(fields).order('created_at',{ascending:false}).order('id').range(start,start+499);
+        query=query.is('history_hidden_at',null);
+        query=b.history===true?query.neq('status','pending'):query.eq('status','pending');
         if (b.region) query=query.eq('region',b.region);
         const page=check(await query); orders.push(...page); if(page.length<500) break;
       }

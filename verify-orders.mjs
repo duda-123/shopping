@@ -6,18 +6,20 @@ import vm from 'node:vm';
 const orderId='11111111-1111-4111-8111-111111111111';
 let role='admin',mustChange=false,authValid=true,order={id:orderId,status:'pending'},writes=0;
 const db={rpc:async()=>({data:true}),auth:{getUser:async()=>({data:{user:authValid?{id:'staff-id'}:null},error:authValid?null:new Error()})},from(table){
-  let update,fields,filters={};
-  const query={select(v){fields=v;return query;},eq(k,v){filters[k]=v;return query;},update(v){update=v;return query;},order(){return query;},range(){return query;},
+  let update,fields,filters={},excluded={},nulls={};
+  const matches=()=>Object.entries(filters).every(([k,v])=>order[k]===v)&&Object.entries(excluded).every(([k,v])=>order[k]!==v)&&Object.entries(nulls).every(([k,v])=>(order[k]??null)===v);
+  const query={select(v){fields=v;return query;},eq(k,v){filters[k]=v;return query;},neq(k,v){excluded[k]=v;return query;},is(k,v){nulls[k]=v;return query;},update(v){update=v;return query;},order(){return query;},range(){return query;},
     async maybeSingle(){
       if(table==='market_staff')return{data:role?{role,must_change:mustChange,token_valid_after:0}:null};
       if(table==='market_ip_rules')return{data:null};
       if(table==='market_orders'){
-        if(update){if(order.id!==filters.id||order.status!==filters.status)return{data:null};Object.assign(order,update);writes++;return{data:{id:order.id}};}
+        if(update){if(!matches())return{data:null};Object.assign(order,update);writes++;return{data:{id:order.id}};}
         assert.ok(fields.includes('rejection_reason'));assert.ok(fields.includes('rejected_at'));
+        if(('status' in filters&&order.status!==filters.status)||('status' in excluded&&order.status===excluded.status)||('history_hidden_at' in nulls&&order.history_hidden_at!=null))return{data:null};
         return{data:{...order}};
       }
       throw Error(table);
-    }};return query;
+    },then(ok,bad){return query.maybeSingle().then(result=>({data:result.data?[result.data]:[]})).then(ok,bad);}};return query;
 }};
 let handler;
 let backend=await readFile(new URL('./supabase/functions/market-api/index.ts',import.meta.url),'utf8');
@@ -38,6 +40,19 @@ for(const value of ['admin','supplier']){
   assert.equal((await call('my-order',{receipt:'ABCDE23456'},false)).order.rejection_reason,'该区域暂时无法配送');
 }
 for(const status of ['rejected','cancelled','fulfilled']){order={id:orderId,status};assert.equal((await call('reject-order',{id:orderId,reason:'不能覆盖'})).status,409);assert.equal(order.status,status);}
+order={id:orderId,status:'pending'};assert.equal((await call('delete-history-order',{id:orderId})).status,409);
+assert.equal((await call('delete-history-order',{id:orderId},false)).status,401);
+for(const value of ['admin','supplier']){
+  role=value;order={id:orderId,status:'rejected',rejection_reason:'缺货',history_hidden_at:null};
+  assert.equal((await call('orders',{history:true})).orders.length,1);
+  assert.equal((await call('orders')).orders.length,0);
+  assert.equal((await call('delete-history-order',{id:orderId})).status,200);
+  assert.ok(order.history_hidden_at);assert.equal(order.history_hidden_by,'staff-id');
+  assert.equal(order.status,'rejected');assert.equal(order.rejection_reason,'缺货');
+  assert.equal((await call('orders',{history:true})).orders.length,0);
+  assert.equal((await call('delete-history-order',{id:orderId})).status,409);
+  assert.equal((await call('my-order',{receipt:'ABCDE23456'},false)).order.rejection_reason,'缺货');
+}
 
 const elements=new Map(),handlers={};
 const element=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',textContent:'',hidden:false,open:false,scrollIntoView(){},close(){this.open=false;},showModal(){this.open=true;}});return elements.get(s);};
@@ -67,4 +82,11 @@ vm.runInContext("showOrder(orders[0],false,'ABCDE23456')",context);
 assert.ok(element('#order-dialog').innerHTML.includes('data-action="cancel-order"'));
 assert.ok(!element('#order-dialog').innerHTML.includes('data-action="fulfill"'));
 assert.ok(!/未收取付款|尚未付款|不进行在线付款/.test(frontend),'Remove payment notices from customer UI');
+await vm.runInContext("tab='history';statusFilter='';renderOrders()",context);
+const historyHTML=element('#admin-content').innerHTML;
+assert.ok(historyHTML.includes('data-action="delete-history-order"'));
+assert.ok(historyHTML.includes('<h2>历史订单</h2>'));
+assert.ok(!historyHTML.includes('<h2>备菜数量汇总</h2>'));
+vm.runInContext('adminShell()',context);
+assert.ok(element('#main').innerHTML.includes('data-tab="history"'));
 console.log('PASS: admin/supplier rejection, mandatory reason, status conflicts, private lookup, contact display, safe reason rendering, preparation totals');

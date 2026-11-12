@@ -1,0 +1,4 @@
+project_id = "shopping"
+
+[functions.market-api]
+verify_jwt = false

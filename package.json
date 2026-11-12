@@ -1,0 +1,1 @@
+{"name":"neighborhood-fresh-market","private":true,"type":"module","scripts":{"check":"node --check dist/app.js && node --check dist/config.js","preview":"node preview.mjs"}}
